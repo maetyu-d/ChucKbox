@@ -16,7 +16,7 @@ struct ContentView: View {
     private let barGap: CGFloat = 6
     private let laneHeight: CGFloat = 64
 
-    @StateObject private var model = AppViewModel()
+    @EnvironmentObject private var model: AppViewModel
     @State private var editorPanel: EditorPanel = .clip
     @State private var marqueeStart: CGPoint?
     @State private var marqueeCurrent: CGPoint?
@@ -49,69 +49,65 @@ struct ContentView: View {
 
     private var topBar: some View {
         VStack(spacing: 8) {
-            HStack(alignment: .top, spacing: 10) {
-                transportBadge
-                transportControls
-                cycleDesk
-                timelineDesk
-                snapDesk
-                projectDesk
-                Spacer(minLength: 0)
-                sessionStatusDesk
-            }
-
-            HStack(spacing: 8) {
-                TextField("Project", text: model.projectBinding(\.name))
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 240)
-
-                TextField("ChucK Path", text: model.chuckPathBinding())
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit {
-                        model.refreshEngineStatus()
-                    }
-
-                Button("Detect") {
-                    model.autoDetectBinary()
-                }
-                .buttonStyle(.bordered)
-
-                Button("Test Audio") {
-                    model.testEngine()
-                }
-                .buttonStyle(.bordered)
-
-                Picker("Preset", selection: $model.selectedPreset) {
-                    ForEach(PresetLibrary.allCases) { preset in
-                        Text(preset.rawValue).tag(preset)
-                    }
-                }
-                .labelsHidden()
-                .frame(width: 170)
-
-                Button("Load") {
-                    model.loadPreset()
-                }
-                .buttonStyle(.bordered)
-
-                Button("Reset") {
-                    model.resetProject()
-                }
-                .buttonStyle(.bordered)
-            }
+            compactTransportRow
+            compactSessionRow
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
         .background(
             LinearGradient(
                 colors: [
-                    Color(nsColor: .controlBackgroundColor).opacity(0.9),
-                    Color(nsColor: .underPageBackgroundColor).opacity(0.95)
+                    Color(nsColor: .textBackgroundColor).opacity(0.95),
+                    Color(nsColor: .controlBackgroundColor).opacity(0.88)
                 ],
                 startPoint: .top,
                 endPoint: .bottom
             )
         )
+        .overlay(alignment: .bottom) {
+            Divider()
+        }
+    }
+
+    private var compactTransportRow: some View {
+        HStack(alignment: .center, spacing: 12) {
+            compactIdentity
+            compactTransportButtons
+            compactTimingStrip
+            compactSnapStrip
+            compactNavigationStrip
+            Spacer(minLength: 10)
+            compactMonitorStrip
+        }
+        .frame(height: 40)
+    }
+
+    private var compactSessionRow: some View {
+        HStack(spacing: 10) {
+            TextField("Project", text: model.projectBinding(\.name))
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 190)
+
+            Picker("Preset", selection: $model.selectedPreset) {
+                ForEach(PresetLibrary.allCases) { preset in
+                    Text(preset.rawValue).tag(preset)
+                }
+            }
+            .labelsHidden()
+            .frame(width: 150)
+
+            Button("Load") {
+                model.loadPreset()
+            }
+            .buttonStyle(.bordered)
+
+            Button("Reset") {
+                model.resetProject()
+            }
+            .buttonStyle(.bordered)
+            Spacer(minLength: 0)
+        }
+        .controlSize(.small)
     }
 
     private var trackListPane: some View {
@@ -129,61 +125,24 @@ struct ContentView: View {
                 .font(.system(size: 11, weight: .semibold))
             }
 
-            List {
-                ForEach(model.project.tracks) { track in
-                    VStack(alignment: .leading, spacing: 6) {
-                        Button {
-                            model.selectTrack(track.id)
-                        } label: {
-                            HStack {
-                                Circle()
-                                    .fill(trackIsAudible(track) ? Color.accentColor : .gray.opacity(0.35))
-                                    .frame(width: 7, height: 7)
-                                Text(track.name)
-                                    .fontWeight(track.id == model.selectedTrackID ? .semibold : .regular)
-                                Spacer()
-                                if track.solo {
-                                    Text("S")
-                                        .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                        .foregroundStyle(.yellow)
-                                }
-                                if !track.enabled {
-                                    Text("M")
-                                        .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                        .foregroundStyle(.red)
-                                }
-                                Text("\(track.clips.count)")
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        .buttonStyle(.plain)
-
-                        ForEach(track.clips) { clip in
-                            Button {
-                                model.selectClip(trackID: track.id, clipID: clip.id)
-                            } label: {
-                                HStack(spacing: 6) {
-                                    Rectangle()
-                                        .fill(model.selectedClipIDs.contains(clip.id) ? Color.accentColor : Color.secondary.opacity(0.25))
-                                        .frame(width: 3, height: 14)
-                                    VStack(alignment: .leading, spacing: 1) {
-                                        Text(clip.name)
-                                            .lineLimit(1)
-                                        Text("\(formattedClipStart(clip)) · \(formattedClipLength(clip))")
-                                            .font(.caption2)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    Spacer()
-                                }
-                            }
-                            .buttonStyle(.plain)
-                            .padding(.leading, 16)
-                        }
+            ScrollView {
+                LazyVStack(spacing: 8) {
+                    ForEach(model.project.tracks) { track in
+                        sidebarTrackCard(track)
                     }
-                    .padding(.vertical, 4)
                 }
+                .padding(10)
             }
-            .listStyle(.sidebar)
+            .background(
+                LinearGradient(
+                    colors: [
+                        Color(nsColor: .textBackgroundColor).opacity(0.74),
+                        Color(nsColor: .controlBackgroundColor).opacity(0.44)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
         }
     }
 
@@ -291,6 +250,8 @@ struct ContentView: View {
 
     private var timelinePinnedHeader: some View {
         VStack(alignment: .leading, spacing: 0) {
+            headerInfoStrip
+                .padding(.bottom, 8)
             scrubStrip
                 .padding(.bottom, 8)
             overviewStrip
@@ -298,12 +259,15 @@ struct ContentView: View {
             barRuler
         }
         .padding(.top, 10)
-        .padding(.bottom, 6)
+        .padding(.bottom, 8)
+        .overlay(alignment: .bottom) {
+            Divider()
+        }
         .background(
             LinearGradient(
                 colors: [
-                    Color(nsColor: .textBackgroundColor).opacity(0.96),
-                    Color(nsColor: .controlBackgroundColor).opacity(0.96)
+                    Color(nsColor: .textBackgroundColor).opacity(0.985),
+                    Color(nsColor: .controlBackgroundColor).opacity(0.95)
                 ],
                 startPoint: .top,
                 endPoint: .bottom
@@ -323,7 +287,7 @@ struct ContentView: View {
                 .frame(width: 220)
             }
 
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 10) {
                 if editorPanel == .clip {
                     clipInspector
                 } else if editorPanel == .prelude {
@@ -334,53 +298,68 @@ struct ContentView: View {
                     logView
                 }
             }
-            .padding(10)
+            .padding(12)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(
+                LinearGradient(
+                    colors: [
+                        Color(nsColor: .textBackgroundColor).opacity(0.78),
+                        Color(nsColor: .controlBackgroundColor).opacity(0.46)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
         }
     }
 
     private var clipInspector: some View {
         Group {
             if model.selectedTrackIndex != nil, model.selectedClipIndex != nil {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 8) {
-                        TextField("Clip Name", text: model.selectedClipBinding(\.name, fallback: ""))
-                            .textFieldStyle(.roundedBorder)
-                        compactIntField("Start 16th", value: model.selectedClipBinding(\.startStep, fallback: 0), width: 72)
-                        compactIntField("Len 16th", value: model.selectedClipBinding(\.lengthSteps, fallback: 1), width: 72)
+                VStack(alignment: .leading, spacing: 10) {
+                    inspectorCard(title: "Clip") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 8) {
+                                TextField("Clip Name", text: model.selectedClipBinding(\.name, fallback: ""))
+                                    .textFieldStyle(.roundedBorder)
+                                compactIntField("Start 16th", value: model.selectedClipBinding(\.startStep, fallback: 0), width: 72)
+                                compactIntField("Len 16th", value: model.selectedClipBinding(\.lengthSteps, fallback: 1), width: 72)
+                            }
+
+                            HStack(spacing: 8) {
+                                TextField("Track Name", text: model.selectedTrackBinding(\.name, fallback: ""))
+                                    .textFieldStyle(.roundedBorder)
+                                Toggle("On", isOn: model.selectedTrackBinding(\.enabled, fallback: true))
+                                    .toggleStyle(.checkbox)
+                            }
+
+                            selectedTrackTimingStrip
+                        }
                     }
 
-                    HStack(spacing: 8) {
-                        TextField("Track Name", text: model.selectedTrackBinding(\.name, fallback: ""))
-                            .textFieldStyle(.roundedBorder)
-                        Toggle("On", isOn: model.selectedTrackBinding(\.enabled, fallback: true))
-                            .toggleStyle(.checkbox)
+                    inspectorCard(title: "Code") {
+                        editorBlock(title: "Clip Code", text: model.selectedClipBinding(\.code, fallback: ""))
                     }
-
-                    selectedTrackTimingStrip
-
-                    editorBlock(title: "Clip Code", text: model.selectedClipBinding(\.code, fallback: ""))
                 }
             } else if model.selectedTrackIndex != nil {
                 VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 8) {
-                        TextField("Track Name", text: model.selectedTrackBinding(\.name, fallback: ""))
-                            .textFieldStyle(.roundedBorder)
-                        Toggle("On", isOn: model.selectedTrackBinding(\.enabled, fallback: true))
-                            .toggleStyle(.checkbox)
-                        Toggle("Solo", isOn: model.selectedTrackBinding(\.solo, fallback: false))
-                            .toggleStyle(.checkbox)
-                    }
+                    inspectorCard(title: "Track") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 8) {
+                                TextField("Track Name", text: model.selectedTrackBinding(\.name, fallback: ""))
+                                    .textFieldStyle(.roundedBorder)
+                                Toggle("On", isOn: model.selectedTrackBinding(\.enabled, fallback: true))
+                                    .toggleStyle(.checkbox)
+                                Toggle("Solo", isOn: model.selectedTrackBinding(\.solo, fallback: false))
+                                    .toggleStyle(.checkbox)
+                            }
 
-                    selectedTrackTimingStrip
+                            selectedTrackTimingStrip
 
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Track")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text("Select a clip to edit its ChucK region. Tempo ratio and meter apply to every clip on this track.")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
+                            Text("Select a clip to edit its ChucK region. Tempo ratio and meter apply to every clip on this track.")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                        }
                     }
 
                     Spacer(minLength: 0)
@@ -410,6 +389,115 @@ struct ContentView: View {
         }
     }
 
+    private func sidebarTrackCard(_ track: Track) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                model.selectTrack(track.id)
+            } label: {
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(trackHeaderDot(track))
+                        .frame(width: 8, height: 8)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(track.name)
+                            .font(.system(size: 12, weight: .semibold))
+                            .lineLimit(1)
+                        Text("\(formattedTempoRatio(track.tempoRatio)) · \(track.timeSignatureTop)/\(track.timeSignatureBottom)")
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    if track.solo {
+                        headerPill("S", tint: Color.yellow.opacity(0.22))
+                    }
+                    if !track.enabled {
+                        headerPill("M", tint: Color.red.opacity(0.18))
+                    }
+                    Text("\(track.clips.count)")
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .buttonStyle(.plain)
+
+            VStack(spacing: 4) {
+                ForEach(track.clips) { clip in
+                    Button {
+                        model.selectClip(trackID: track.id, clipID: clip.id)
+                    } label: {
+                        HStack(spacing: 8) {
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(model.selectedClipIDs.contains(clip.id) ? Color.accentColor : Color.secondary.opacity(0.18))
+                                .frame(width: 4, height: 18)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(clip.name)
+                                    .font(.system(size: 11, weight: .medium))
+                                    .lineLimit(1)
+                                Text("\(formattedClipStart(clip)) · \(formattedClipLength(clip))")
+                                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(model.selectedClipIDs.contains(clip.id) ? Color.accentColor.opacity(0.12) : Color.clear)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(sidebarTrackBackground(track))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(track.id == model.selectedTrackID ? Color.accentColor.opacity(0.32) : Color.white.opacity(0.04), lineWidth: 1)
+                )
+        )
+    }
+
+    private func inspectorCard<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .textCase(.uppercase)
+                .foregroundStyle(.secondary)
+            content()
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color.white.opacity(0.06))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(Color.white.opacity(0.05), lineWidth: 1)
+                )
+        )
+    }
+
+    private var headerInfoStrip: some View {
+        HStack(spacing: 10) {
+            Text("Timeline")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: laneLabelWidth, alignment: .leading)
+
+            HStack(spacing: 8) {
+                headerPill("Master \(logicBarDisplay)", tint: Color.green.opacity(0.18))
+                if let primaryFollowTrack, usesIndependentTrackPlayheads {
+                    headerPill("\(primaryFollowTrack.name) \(localPlayheadDisplay(for: primaryFollowTrack))", tint: Color.orange.opacity(0.18))
+                }
+                headerPill("Snap \(model.snapMode.rawValue)", tint: Color.secondary.opacity(0.12))
+                headerPill("Cycle \(model.project.master.cycleStartBar)-\(model.project.master.cycleEndBar)", tint: Color.secondary.opacity(0.12))
+            }
+        }
+    }
+
     private var barRuler: some View {
         HStack(spacing: 6) {
             Text("")
@@ -428,6 +516,22 @@ struct ContentView: View {
                         .frame(width: barWidth, alignment: .leading)
                         .id(barID(bar))
                     }
+                }
+
+                if usesIndependentTrackPlayheads, let primaryFollowTrack {
+                    Rectangle()
+                        .fill(Color.orange.opacity(0.95))
+                        .frame(width: 2, height: 24)
+                        .offset(x: lanePlayheadX(for: primaryFollowTrack), y: -2)
+                        .shadow(color: Color.orange.opacity(0.42), radius: 3)
+
+                    Text("T1")
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .foregroundStyle(Color.orange.opacity(0.95))
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 2)
+                        .background(Color.black.opacity(0.25), in: Capsule())
+                        .offset(x: min(max(0, lanePlayheadX(for: primaryFollowTrack) + 4), max(0, timelineWidth - 24)), y: -16)
                 }
 
                 RoundedRectangle(cornerRadius: 5)
@@ -563,16 +667,24 @@ struct ContentView: View {
                         }
                     }
 
+                Rectangle()
+                    .fill(Color.white.opacity(0.95))
+                    .frame(width: 2)
+                    .offset(x: overviewPlayheadX(width: geometry.size.width))
+                    .shadow(color: .accentColor.opacity(0.35), radius: 2)
+
+                if usesIndependentTrackPlayheads, let primaryFollowTrack {
                     Rectangle()
-                        .fill(Color.white.opacity(0.95))
+                        .fill(Color.orange.opacity(0.95))
                         .frame(width: 2)
-                        .offset(x: overviewPlayheadX(width: geometry.size.width))
-                        .shadow(color: .accentColor.opacity(0.35), radius: 2)
+                        .offset(x: overviewTrackPlayheadX(track: primaryFollowTrack, width: geometry.size.width))
+                        .shadow(color: Color.orange.opacity(0.4), radius: 2)
                 }
-                .contentShape(Rectangle())
-                .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .onEnded { value in
+            }
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onEnded { value in
                             let clampedX = min(max(0, value.location.x), geometry.size.width)
                             let ratio = geometry.size.width > 0 ? clampedX / geometry.size.width : 0
                             let position = 1.0 + Double(ratio) * Double(max(1, model.project.master.loopBars))
@@ -603,6 +715,14 @@ struct ContentView: View {
                         .frame(width: 2)
                         .offset(x: scrubPlayheadX(width: geometry.size.width))
                         .shadow(color: .accentColor.opacity(0.35), radius: 2)
+
+                    if usesIndependentTrackPlayheads, let primaryFollowTrack {
+                        Rectangle()
+                            .fill(Color.orange.opacity(0.92))
+                            .frame(width: 2)
+                            .offset(x: scrubTrackPlayheadX(track: primaryFollowTrack, width: geometry.size.width))
+                            .shadow(color: Color.orange.opacity(0.35), radius: 2)
+                    }
                 }
                 .contentShape(Rectangle())
                 .gesture(
@@ -654,16 +774,10 @@ struct ContentView: View {
                 localTrackGrid(track)
 
                 Rectangle()
-                    .fill(
-                        LinearGradient(
-                            colors: [Color.white.opacity(0.98), Color.accentColor.opacity(0.72)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
+                    .fill(playheadFill(for: track))
                     .frame(width: 2, height: laneHeight + 14)
-                    .shadow(color: .accentColor.opacity(0.55), radius: 6)
-                    .offset(x: playheadX, y: -5)
+                    .shadow(color: playheadShadowColor(for: track), radius: 6)
+                    .offset(x: lanePlayheadX(for: track), y: -5)
 
                 ForEach(track.clips) { clip in
                     clipBlock(track: track, clip: clip)
@@ -788,100 +902,123 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .padding(8)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.black.opacity(0.14))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.white.opacity(0.04), lineWidth: 1)
+                )
+        )
     }
 
-    private var transportBadge: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("ChuckDAW")
-                .font(.system(size: 18, weight: .bold, design: .rounded))
-            Text("ARRANGE")
+    private var transportIdentity: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(model.project.name.isEmpty ? "ChuckDAW" : model.project.name)
+                .font(.system(size: 20, weight: .bold, design: .rounded))
+                .lineLimit(1)
+            Text("Arrangement")
                 .font(.system(size: 10, weight: .semibold, design: .monospaced))
                 .foregroundStyle(.secondary)
         }
-        .frame(width: 120, alignment: .leading)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(transportPanelFill, in: RoundedRectangle(cornerRadius: 12))
+        .frame(width: 210, alignment: .leading)
     }
 
-    private var transportControls: some View {
+    private var transportButtons: some View {
         HStack(spacing: 8) {
             Button(model.isPlaying ? "Re-run" : "Start") {
                 model.startPlayback()
             }
             .buttonStyle(.borderedProminent)
             .keyboardShortcut(.space, modifiers: [])
+            .frame(width: 74)
 
             Button("Stop") {
                 model.stopPlayback()
             }
             .buttonStyle(.bordered)
             .keyboardShortcut(".", modifiers: [.command])
+            .frame(width: 66)
 
             Button("Compile") {
                 model.compile()
             }
             .buttonStyle(.bordered)
             .keyboardShortcut("b", modifiers: [.command])
+            .frame(width: 76)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(transportPanelFill, in: RoundedRectangle(cornerRadius: 12))
+        .controlSize(.large)
     }
 
-    private var cycleDesk: some View {
-        HStack(spacing: 10) {
-            compactIntField("Loop", value: model.masterBinding(\.loopBars), width: 56)
-            compactIntField("Cycle In", value: cycleStartBinding, width: 62)
-            compactIntField("Cycle Out", value: cycleEndBinding, width: 62)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(transportPanelFill, in: RoundedRectangle(cornerRadius: 12))
-    }
-
-    private var timelineDesk: some View {
-        HStack(spacing: 10) {
+    private var transportTimingCluster: some View {
+        HStack(alignment: .top, spacing: 10) {
             compactNumberField("BPM", value: model.masterBinding(\.bpm), width: 60, precision: 0)
             compactNumberField("Gain", value: model.masterBinding(\.gain), width: 60, precision: 2)
+            compactIntField("Loop", value: model.masterBinding(\.loopBars), width: 54)
+            compactIntField("In", value: cycleStartBinding, width: 52)
+            compactIntField("Out", value: cycleEndBinding, width: 52)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Snap")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Picker("", selection: $model.snapMode) {
+                    ForEach(TimelineSnapMode.allCases) { mode in
+                        Text(mode.rawValue).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 170)
+            }
+        }
+        .frame(width: 430, alignment: .leading)
+    }
+
+    private var transportNavigationCluster: some View {
+        HStack(alignment: .top, spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Follow")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
                 Toggle("", isOn: $model.followPlayhead)
                     .labelsHidden()
                     .toggleStyle(.switch)
                     .scaleEffect(0.84, anchor: .leading)
             }
+
             VStack(alignment: .leading, spacing: 4) {
                 Text("Zoom")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
                 Slider(value: $model.timelineZoom, in: 0.65...1.85)
-                    .frame(width: 110)
+                    .frame(width: 96)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(transportPanelFill, in: RoundedRectangle(cornerRadius: 12))
+        .frame(width: 156, alignment: .leading)
     }
 
-    private var projectDesk: some View {
+    private var transportReadoutCluster: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Position")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
             Text(logicBarDisplay)
-                .font(.system(size: 21, weight: .bold, design: .monospaced))
+                .font(.system(size: 24, weight: .bold, design: .monospaced))
                 .foregroundStyle(Color.green.opacity(0.95))
+            HStack(spacing: 6) {
+                headerPill("Master", tint: Color.green.opacity(0.14))
+                if let primaryFollowTrack, usesIndependentTrackPlayheads {
+                    headerPill("Track 1 \(localPlayheadDisplay(for: primaryFollowTrack))", tint: Color.orange.opacity(0.16))
+                }
+            }
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .frame(width: 148, alignment: .leading)
+        .frame(width: 140, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(Color.black.opacity(0.86))
+                .fill(Color.black.opacity(0.88))
                 .overlay(
                     RoundedRectangle(cornerRadius: 12)
                         .stroke(Color.green.opacity(0.14), lineWidth: 1)
@@ -889,26 +1026,94 @@ struct ContentView: View {
         )
     }
 
-    private var sessionStatusDesk: some View {
-        VStack(alignment: .trailing, spacing: 6) {
-            HStack(spacing: 6) {
-                tag("\(model.stats.activeTracks) tracks")
-                tag("\(model.stats.activeClips) clips")
-                tag(model.engineStatus == "Binary found" ? "engine ok" : "engine missing")
+    private var transportStatusCluster: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                monitorMetric(value: "\(model.stats.activeTracks)", label: "Tracks")
+                monitorMetric(value: "\(model.stats.activeClips)", label: "Clips")
             }
-            Text(model.isPlaying ? "Rolling" : "Stopped")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(model.isPlaying ? Color.green : .secondary)
+
+            HStack(spacing: 8) {
+                monitorStatusPill(
+                    model.engineStatus == "Binary found" ? "Engine OK" : "Engine Missing",
+                    tint: model.engineStatus == "Binary found" ? Color.green.opacity(0.18) : Color.red.opacity(0.18)
+                )
+                monitorStatusPill(
+                    model.isPlaying ? "Rolling" : "Stopped",
+                    tint: model.isPlaying ? Color.green.opacity(0.18) : Color.white.opacity(0.10)
+                )
+            }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(transportPanelFill, in: RoundedRectangle(cornerRadius: 12))
+        .frame(width: 150, alignment: .leading)
     }
 
-    private var snapDesk: some View {
-        VStack(alignment: .leading, spacing: 4) {
+    private var transportMonitorCluster: some View {
+        HStack(alignment: .center, spacing: 14) {
+            transportReadoutCluster
+            transportStatusCluster
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .frame(width: 344, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(Color.black.opacity(0.12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14)
+                        .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                )
+        )
+    }
+
+    private var compactIdentity: some View {
+        HStack(spacing: 8) {
+            Text(model.project.name.isEmpty ? "ChuckDAW" : model.project.name)
+                .font(.system(size: 14, weight: .bold, design: .rounded))
+                .lineLimit(1)
+            Text("Arrange")
+                .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.secondary)
+        }
+        .frame(width: 148, alignment: .leading)
+    }
+
+    private var compactTransportButtons: some View {
+        HStack(spacing: 6) {
+            Button(model.isPlaying ? "Re-run" : "Start") {
+                model.startPlayback()
+            }
+            .buttonStyle(.borderedProminent)
+            .frame(width: 62)
+
+            Button("Stop") {
+                model.stopPlayback()
+            }
+            .buttonStyle(.bordered)
+            .frame(width: 54)
+
+            Button("Compile") {
+                model.compile()
+            }
+            .buttonStyle(.bordered)
+            .frame(width: 66)
+        }
+        .controlSize(.small)
+    }
+
+    private var compactTimingStrip: some View {
+        HStack(spacing: 8) {
+            compactNumberField("BPM", value: model.masterBinding(\.bpm), width: 46, precision: 0)
+            compactNumberField("Gain", value: model.masterBinding(\.gain), width: 50, precision: 2)
+            compactIntField("Loop", value: model.masterBinding(\.loopBars), width: 42)
+            compactIntField("In", value: cycleStartBinding, width: 38)
+            compactIntField("Out", value: cycleEndBinding, width: 38)
+        }
+    }
+
+    private var compactSnapStrip: some View {
+        HStack(spacing: 6) {
             Text("Snap")
-                .font(.caption2)
+                .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(.secondary)
             Picker("", selection: $model.snapMode) {
                 ForEach(TimelineSnapMode.allCases) { mode in
@@ -916,31 +1121,96 @@ struct ContentView: View {
                 }
             }
             .pickerStyle(.segmented)
-            .frame(width: 190)
+            .frame(width: 138)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(transportPanelFill, in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var compactNavigationStrip: some View {
+        HStack(spacing: 10) {
+            HStack(spacing: 5) {
+                Text("Follow")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                Toggle("", isOn: $model.followPlayhead)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .scaleEffect(0.75)
+            }
+
+            HStack(spacing: 5) {
+                Text("Zoom")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                Slider(value: $model.timelineZoom, in: 0.65...1.85)
+                    .frame(width: 68)
+            }
+        }
+        .frame(width: 156, alignment: .leading)
+    }
+
+    private var compactMonitorStrip: some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(logicBarDisplay)
+                    .font(.system(size: 17, weight: .bold, design: .monospaced))
+                    .foregroundStyle(Color.green.opacity(0.95))
+                Text("Master")
+                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(Color.green.opacity(0.55))
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 9)
+                    .fill(Color.black.opacity(0.84))
+            )
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    miniStatus("\(model.stats.activeTracks)T")
+                    miniStatus("\(model.stats.activeClips)C")
+                }
+                miniStatus(model.isPlaying ? "Playing" : "Stopped")
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color.black.opacity(0.05))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(Color.white.opacity(0.06), lineWidth: 1)
+                )
+        )
+    }
+
+    private func miniStatus(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 9, weight: .semibold, design: .monospaced))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
+            .background(Color.white.opacity(0.4), in: Capsule())
     }
 
     private func trackHeader(_ track: Track) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .center, spacing: 8) {
                 Circle()
                     .fill(trackHeaderDot(track))
-                    .frame(width: 10, height: 10)
+                    .frame(width: 8, height: 8)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(track.name)
                         .font(.system(size: 12, weight: .semibold))
                         .lineLimit(1)
-                    Text("\(formattedTempoRatio(track.tempoRatio)) · \(track.timeSignatureTop)/\(track.timeSignatureBottom) · \(track.clips.count) clips")
-                        .font(.system(size: 10, weight: .medium))
+                    Text("clips \(track.clips.count)")
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
-                Text(track.solo ? "S" : (!track.enabled ? "M" : ""))
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .foregroundStyle(track.solo ? .yellow : .red)
+                Text(trackIndexLabel(for: track))
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundStyle(.secondary)
             }
 
             HStack(spacing: 6) {
@@ -951,19 +1221,28 @@ struct ContentView: View {
                     model.toggleTrackSolo(track.id)
                 }
                 Spacer(minLength: 0)
+                headerPill(formattedTempoRatio(track.tempoRatio), tint: Color.secondary.opacity(0.10))
+                headerPill("\(track.timeSignatureTop)/\(track.timeSignatureBottom)", tint: Color.secondary.opacity(0.10))
+            }
+
+            HStack(spacing: 6) {
                 Text(trackIsAudible(track) ? "live" : "off")
                     .font(.system(size: 10, weight: .semibold, design: .monospaced))
                     .foregroundStyle(trackIsAudible(track) ? Color.green.opacity(0.85) : .secondary)
+                Spacer(minLength: 0)
+                Text(localPlayheadDisplay(for: track))
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(primaryFollowTrack?.id == track.id && usesIndependentTrackPlayheads ? Color.orange.opacity(0.95) : .secondary)
             }
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 10)
+        .padding(.vertical, 9)
         .background(
-            RoundedRectangle(cornerRadius: 10)
+            RoundedRectangle(cornerRadius: 8)
                 .fill(trackHeaderBackground(track))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.white.opacity(0.06), lineWidth: 1)
                 )
         )
     }
@@ -990,9 +1269,21 @@ struct ContentView: View {
             Spacer()
             trailing()
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.35))
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(
+            LinearGradient(
+                colors: [
+                    Color.white.opacity(0.72),
+                    Color.white.opacity(0.46)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
+        .overlay(alignment: .bottom) {
+            Divider()
+        }
     }
 
     private func compactNumberField(_ title: String, value: Binding<Double>, width: CGFloat, precision: Int) -> some View {
@@ -1000,10 +1291,13 @@ struct ContentView: View {
             Text(title)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
             TextField("", value: value, format: .number.precision(.fractionLength(precision)))
                 .textFieldStyle(.roundedBorder)
                 .frame(width: width)
         }
+        .frame(width: width, alignment: .leading)
     }
 
     private func compactIntField(_ title: String, value: Binding<Int>, width: CGFloat) -> some View {
@@ -1011,10 +1305,13 @@ struct ContentView: View {
             Text(title)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
             TextField("", value: value, format: .number)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: width)
         }
+        .frame(width: width, alignment: .leading)
     }
 
     private func compactTimeSignatureBottomPicker(title: String, value: Binding<Int>, width: CGFloat) -> some View {
@@ -1022,6 +1319,8 @@ struct ContentView: View {
             Text(title)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
             Picker("", selection: value) {
                 ForEach([1, 2, 4, 8, 16], id: \.self) { denominator in
                     Text("\(denominator)").tag(denominator)
@@ -1030,6 +1329,7 @@ struct ContentView: View {
             .labelsHidden()
             .frame(width: width)
         }
+        .frame(width: width, alignment: .leading)
     }
 
     private func tag(_ text: String) -> some View {
@@ -1038,6 +1338,77 @@ struct ContentView: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(Color.secondary.opacity(0.12), in: Capsule())
+            .fixedSize()
+    }
+
+    private func monitorMetric(value: String, label: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(value)
+                .font(.system(size: 14, weight: .bold, design: .monospaced))
+                .foregroundStyle(Color.white.opacity(0.94))
+            Text(label)
+                .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func monitorStatusPill(_ text: String, tint: Color) -> some View {
+        Text(text)
+            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+            .foregroundStyle(Color.white.opacity(0.92))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(tint, in: Capsule())
+            .fixedSize()
+    }
+
+    private func transportSubsection<Content: View>(
+        title: String,
+        width: CGFloat? = nil,
+        fill: Bool = false,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.secondary)
+            content()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(width: width, alignment: .leading)
+        .frame(maxWidth: fill ? .infinity : nil, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.white.opacity(0.32))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color.white.opacity(0.34), lineWidth: 1)
+                )
+        )
+    }
+
+    private var transportDeckBackground: some ShapeStyle {
+        LinearGradient(
+            colors: [
+                Color(nsColor: .textBackgroundColor).opacity(0.92),
+                Color(nsColor: .controlBackgroundColor).opacity(0.78)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+
+    private func headerPill(_ text: String, tint: Color) -> some View {
+        Text(text)
+            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(tint, in: Capsule())
     }
 
     private func smallTrackButton(_ title: String, active: Bool, accent: Color, action: @escaping () -> Void) -> some View {
@@ -1085,6 +1456,13 @@ struct ContentView: View {
 
     private var currentBarAnchor: Int {
         min(model.project.master.loopBars, max(1, Int(floor(model.transportBarPosition))))
+    }
+
+    private var followBarAnchor: Int {
+        if usesIndependentTrackPlayheads, let firstTrack = model.project.tracks.first {
+            return barAnchor(forX: lanePlayheadX(for: firstTrack))
+        }
+        return currentBarAnchor
     }
 
     private var currentBarDisplay: String {
@@ -1235,7 +1613,7 @@ struct ContentView: View {
 
     private func scrollToVisibleBar(using proxy: ScrollViewProxy, animated: Bool) {
         guard model.followPlayhead else { return }
-        let targetBar = min(model.project.master.loopBars, max(1, currentBarAnchor + followLookAheadBars))
+        let targetBar = min(model.project.master.loopBars, max(1, followBarAnchor + followLookAheadBars))
         let anchor = UnitPoint(x: 0.28, y: 0.5)
         if animated {
             withAnimation(.easeOut(duration: 0.18)) {
@@ -1277,6 +1655,19 @@ struct ContentView: View {
         return Color.black.opacity(0.14)
     }
 
+    private func sidebarTrackBackground(_ track: Track) -> Color {
+        if track.id == model.selectedTrackID {
+            return Color.accentColor.opacity(0.08)
+        }
+        if track.solo {
+            return Color.yellow.opacity(0.05)
+        }
+        if !track.enabled {
+            return Color.gray.opacity(0.06)
+        }
+        return Color.black.opacity(0.10)
+    }
+
     private func trackHeaderBackground(_ track: Track) -> Color {
         if track.solo {
             return Color.yellow.opacity(0.12)
@@ -1292,6 +1683,88 @@ struct ContentView: View {
             return .yellow
         }
         return trackIsAudible(track) ? .green : .gray
+    }
+
+    private func trackIndexLabel(for track: Track) -> String {
+        if let index = model.project.tracks.firstIndex(where: { $0.id == track.id }) {
+            return "T\(index + 1)"
+        }
+        return "T"
+    }
+
+    private func lanePlayheadX(for track: Track) -> CGFloat {
+        if usesIndependentTrackPlayheads {
+            let cycleStartSteps = Double((model.project.master.cycleStartBar - 1) * 16)
+            let cycleLengthSteps = Double(max(16, (model.project.master.cycleEndBar - model.project.master.cycleStartBar + 1) * 16))
+            let masterStepPosition = ((model.transportBarPosition - 1.0) * 16.0) - cycleStartSteps
+            let wrappedTrackSteps = (masterStepPosition * max(0.125, track.tempoRatio))
+                .truncatingRemainder(dividingBy: cycleLengthSteps)
+            let normalizedTrackSteps = wrappedTrackSteps >= 0 ? wrappedTrackSteps : wrappedTrackSteps + cycleLengthSteps
+            return CGFloat(normalizedTrackSteps) * pixelsPerStep
+        }
+        return playheadX
+    }
+
+    private var primaryFollowTrack: Track? {
+        model.project.tracks.first
+    }
+
+    private func localPlayheadDisplay(for track: Track) -> String {
+        let masterBeatsFromCycleStart = max(0, (model.transportBarPosition - Double(model.project.master.cycleStartBar)) * 4.0)
+        let localQuarterBeats = masterBeatsFromCycleStart * max(0.125, track.tempoRatio)
+        let beatsPerLocalBar = Double(track.timeSignatureTop) * (4.0 / Double(max(1, track.timeSignatureBottom)))
+        guard beatsPerLocalBar > 0 else { return "1.1.1" }
+
+        let localBarFloat = localQuarterBeats / beatsPerLocalBar
+        let localBar = Int(floor(localBarFloat)) + 1
+        let beatWithinBarFloat = (localBarFloat - floor(localBarFloat)) * beatsPerLocalBar
+        let localBeat = Int(floor(beatWithinBarFloat)) + 1
+        let sixteenthWithinBeat = Int(floor((beatWithinBarFloat - floor(beatWithinBarFloat)) * 4.0)) + 1
+        return "\(localBar).\(max(1, localBeat)).\(min(4, max(1, sixteenthWithinBeat)))"
+    }
+
+    private func barAnchor(forX x: CGFloat) -> Int {
+        let step = barWidth + barGap
+        guard step > 0 else { return 1 }
+        let bar = Int(floor(x / step)) + 1
+        return min(model.project.master.loopBars, max(1, bar))
+    }
+
+    private var usesIndependentTrackPlayheads: Bool {
+        let audibleTracks = model.project.tracks.filter { trackIsAudible($0) }
+        guard let firstTrack = audibleTracks.first else { return false }
+        return audibleTracks.dropFirst().contains { abs($0.tempoRatio - firstTrack.tempoRatio) > 0.0001 }
+    }
+
+    private func overviewTrackPlayheadX(track: Track, width: CGFloat) -> CGFloat {
+        let ratio = timelineWidth > 0 ? lanePlayheadX(for: track) / timelineWidth : 0
+        return width * ratio
+    }
+
+    private func scrubTrackPlayheadX(track: Track, width: CGFloat) -> CGFloat {
+        let ratio = timelineWidth > 0 ? lanePlayheadX(for: track) / timelineWidth : 0
+        return width * ratio
+    }
+
+    private func playheadFill(for track: Track) -> LinearGradient {
+        if usesIndependentTrackPlayheads {
+            let isTrackOne = model.project.tracks.first?.id == track.id
+            let top = isTrackOne ? Color.orange.opacity(0.98) : Color.cyan.opacity(0.95)
+            let bottom = isTrackOne ? Color.red.opacity(0.76) : Color.blue.opacity(0.72)
+            return LinearGradient(colors: [top, bottom], startPoint: .top, endPoint: .bottom)
+        }
+        return LinearGradient(
+            colors: [Color.white.opacity(0.98), Color.accentColor.opacity(0.72)],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+
+    private func playheadShadowColor(for track: Track) -> Color {
+        if usesIndependentTrackPlayheads {
+            return (model.project.tracks.first?.id == track.id ? Color.orange : Color.cyan).opacity(0.55)
+        }
+        return Color.accentColor.opacity(0.55)
     }
 
     private var cycleStartBinding: Binding<Int> {
