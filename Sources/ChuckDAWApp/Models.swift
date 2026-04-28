@@ -96,14 +96,96 @@ struct ClipRegion: Identifiable, Codable, Equatable {
     }
 }
 
+struct RenderedTrackAudio: Codable, Equatable {
+    var filePath: String
+    var startStep: Int
+    var lengthSteps: Int
+    var durationSeconds: Double
+    var waveform: [Float]
+}
+
+struct DeviceSlot: Identifiable, Codable, Equatable {
+    var id: UUID
+    var name: String
+    var filePath: String
+    var isEnabled: Bool
+
+    init(id: UUID = UUID(), name: String, filePath: String, isEnabled: Bool = true) {
+        self.id = id
+        self.name = name
+        self.filePath = filePath
+        self.isEnabled = isEnabled
+    }
+}
+
+struct Bus: Identifiable, Codable, Equatable {
+    var id: UUID
+    var name: String
+    var gain: Double
+    var pan: Double
+    var deviceSlots: [DeviceSlot]
+    var effectCode: String
+
+    init(id: UUID, name: String, gain: Double = 1.0, pan: Double = 0.0, deviceSlots: [DeviceSlot] = [], effectCode: String = "busIn => busOut;") {
+        self.id = id
+        self.name = name
+        self.gain = gain
+        self.pan = pan
+        self.deviceSlots = deviceSlots
+        self.effectCode = effectCode
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case gain
+        case pan
+        case deviceSlots
+        case effectCode
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        gain = try container.decodeIfPresent(Double.self, forKey: .gain) ?? 1.0
+        pan = try container.decodeIfPresent(Double.self, forKey: .pan) ?? 0.0
+        deviceSlots = try container.decodeIfPresent([DeviceSlot].self, forKey: .deviceSlots) ?? []
+        effectCode = try container.decodeIfPresent(String.self, forKey: .effectCode) ?? "busIn => busOut;"
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(gain, forKey: .gain)
+        try container.encode(pan, forKey: .pan)
+        try container.encode(deviceSlots, forKey: .deviceSlots)
+        try container.encode(effectCode, forKey: .effectCode)
+    }
+}
+
+struct BusSend: Codable, Equatable {
+    var busID: UUID
+    var level: Double
+}
+
 struct Track: Identifiable, Codable, Equatable {
     var id: UUID
     var name: String
     var enabled: Bool
     var solo: Bool
+    var gain: Double
+    var pan: Double
+    var deviceSlots: [DeviceSlot]
+    var effectCode: String
+    var outputBusID: UUID?
+    var sends: [BusSend]
     var tempoRatio: Double
     var timeSignatureTop: Int
     var timeSignatureBottom: Int
+    var renderedAudio: RenderedTrackAudio?
+    var useRenderedAudio: Bool
     var clips: [ClipRegion]
 
     init(
@@ -111,18 +193,34 @@ struct Track: Identifiable, Codable, Equatable {
         name: String,
         enabled: Bool,
         solo: Bool = false,
+        gain: Double = 1.0,
+        pan: Double = 0.0,
+        deviceSlots: [DeviceSlot] = [],
+        effectCode: String = "trackIn => trackOut;",
+        outputBusID: UUID? = nil,
+        sends: [BusSend] = [],
         tempoRatio: Double = 1.0,
         timeSignatureTop: Int = 4,
         timeSignatureBottom: Int = 4,
+        renderedAudio: RenderedTrackAudio? = nil,
+        useRenderedAudio: Bool = false,
         clips: [ClipRegion]
     ) {
         self.id = id
         self.name = name
         self.enabled = enabled
         self.solo = solo
+        self.gain = gain
+        self.pan = pan
+        self.deviceSlots = deviceSlots
+        self.effectCode = effectCode
+        self.outputBusID = outputBusID
+        self.sends = sends
         self.tempoRatio = tempoRatio
         self.timeSignatureTop = timeSignatureTop
         self.timeSignatureBottom = timeSignatureBottom
+        self.renderedAudio = renderedAudio
+        self.useRenderedAudio = useRenderedAudio
         self.clips = clips
     }
 
@@ -131,9 +229,17 @@ struct Track: Identifiable, Codable, Equatable {
         case name
         case enabled
         case solo
+        case gain
+        case pan
+        case deviceSlots
+        case effectCode
+        case outputBusID
+        case sends
         case tempoRatio
         case timeSignatureTop
         case timeSignatureBottom
+        case renderedAudio
+        case useRenderedAudio
         case clips
     }
 
@@ -143,9 +249,17 @@ struct Track: Identifiable, Codable, Equatable {
         name = try container.decode(String.self, forKey: .name)
         enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
         solo = try container.decodeIfPresent(Bool.self, forKey: .solo) ?? false
+        gain = try container.decodeIfPresent(Double.self, forKey: .gain) ?? 1.0
+        pan = try container.decodeIfPresent(Double.self, forKey: .pan) ?? 0.0
+        deviceSlots = try container.decodeIfPresent([DeviceSlot].self, forKey: .deviceSlots) ?? []
+        effectCode = try container.decodeIfPresent(String.self, forKey: .effectCode) ?? "trackIn => trackOut;"
+        outputBusID = try container.decodeIfPresent(UUID.self, forKey: .outputBusID)
+        sends = try container.decodeIfPresent([BusSend].self, forKey: .sends) ?? []
         tempoRatio = try container.decodeIfPresent(Double.self, forKey: .tempoRatio) ?? 1.0
         timeSignatureTop = try container.decodeIfPresent(Int.self, forKey: .timeSignatureTop) ?? 4
         timeSignatureBottom = try container.decodeIfPresent(Int.self, forKey: .timeSignatureBottom) ?? 4
+        renderedAudio = try container.decodeIfPresent(RenderedTrackAudio.self, forKey: .renderedAudio)
+        useRenderedAudio = try container.decodeIfPresent(Bool.self, forKey: .useRenderedAudio) ?? false
         clips = try container.decodeIfPresent([ClipRegion].self, forKey: .clips) ?? []
     }
 
@@ -155,9 +269,17 @@ struct Track: Identifiable, Codable, Equatable {
         try container.encode(name, forKey: .name)
         try container.encode(enabled, forKey: .enabled)
         try container.encode(solo, forKey: .solo)
+        try container.encode(gain, forKey: .gain)
+        try container.encode(pan, forKey: .pan)
+        try container.encode(deviceSlots, forKey: .deviceSlots)
+        try container.encode(effectCode, forKey: .effectCode)
+        try container.encodeIfPresent(outputBusID, forKey: .outputBusID)
+        try container.encode(sends, forKey: .sends)
         try container.encode(tempoRatio, forKey: .tempoRatio)
         try container.encode(timeSignatureTop, forKey: .timeSignatureTop)
         try container.encode(timeSignatureBottom, forKey: .timeSignatureBottom)
+        try container.encodeIfPresent(renderedAudio, forKey: .renderedAudio)
+        try container.encode(useRenderedAudio, forKey: .useRenderedAudio)
         try container.encode(clips, forKey: .clips)
     }
 }
@@ -166,7 +288,42 @@ struct Project: Codable, Equatable {
     var name: String
     var master: MasterSettings
     var prelude: String
+    var buses: [Bus]
     var tracks: [Track]
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case master
+        case prelude
+        case buses
+        case tracks
+    }
+
+    init(name: String, master: MasterSettings, prelude: String, buses: [Bus], tracks: [Track]) {
+        self.name = name
+        self.master = master
+        self.prelude = prelude
+        self.buses = buses
+        self.tracks = tracks
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+        master = try container.decode(MasterSettings.self, forKey: .master)
+        prelude = try container.decode(String.self, forKey: .prelude)
+        buses = try container.decodeIfPresent([Bus].self, forKey: .buses) ?? Project.defaultBuses()
+        tracks = try container.decodeIfPresent([Track].self, forKey: .tracks) ?? []
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(name, forKey: .name)
+        try container.encode(master, forKey: .master)
+        try container.encode(prelude, forKey: .prelude)
+        try container.encode(buses, forKey: .buses)
+        try container.encode(tracks, forKey: .tracks)
+    }
 }
 
 struct SavedState: Codable {
@@ -190,6 +347,7 @@ enum PresetLibrary: String, CaseIterable, Identifiable {
                 name: rawValue,
                 master: .init(bpm: 118, gain: 0.85, loopBars: 16),
                 prelude: Project.defaultPrelude,
+                buses: Project.defaultBuses(),
                 tracks: [
                     Track.make(
                         name: "Kick Script",
@@ -218,6 +376,7 @@ enum PresetLibrary: String, CaseIterable, Identifiable {
                 name: rawValue,
                 master: .init(bpm: 92, gain: 0.9, loopBars: 12),
                 prelude: Project.defaultPrelude,
+                buses: Project.defaultBuses(),
                 tracks: [
                     Track.make(
                         name: "Scene A",
@@ -256,6 +415,7 @@ extension Project {
             name: "Code Tape",
             master: .init(bpm: 110, gain: 0.85, loopBars: 16),
             prelude: defaultPrelude,
+            buses: defaultBuses(),
             tracks: [
                 Track.make(
                     name: "Drums",
@@ -285,6 +445,13 @@ extension Project {
     func normalized() -> Project {
         TimelineCompiler.normalize(self)
     }
+
+    static func defaultBuses() -> [Bus] {
+        [
+            Bus(id: UUID(), name: "Bus A"),
+            Bus(id: UUID(), name: "Bus B")
+        ]
+    }
 }
 
 extension Track {
@@ -294,9 +461,17 @@ extension Track {
             name: name,
             enabled: true,
             solo: false,
+            gain: 1.0,
+            pan: 0.0,
+            deviceSlots: [],
+            effectCode: "trackIn => trackOut;",
+            outputBusID: nil,
+            sends: [],
             tempoRatio: 1.0,
             timeSignatureTop: 4,
             timeSignatureBottom: 4,
+            renderedAudio: nil,
+            useRenderedAudio: false,
             clips: clips
         )
     }

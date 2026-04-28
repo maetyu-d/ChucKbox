@@ -9,7 +9,11 @@ struct ChuckDAWApp: App {
         WindowGroup("ChuckDAW") {
             ContentView()
                 .environmentObject(model)
-                .background(WindowBootstrapper())
+                .background(
+                    WindowBootstrapper {
+                        model.toggleMixerVisibility()
+                    }
+                )
         }
         .defaultSize(width: 1720, height: 980)
         .commands {
@@ -18,6 +22,18 @@ struct ChuckDAWApp: App {
                     model.panicKillAllAudio()
                 }
                 .keyboardShortcut("k", modifiers: [.command])
+            }
+
+            CommandGroup(after: .sidebar) {
+                Divider()
+                Toggle(
+                    "Mixer",
+                    isOn: Binding(
+                        get: { model.isMixerVisible },
+                        set: { model.setMixerVisibility($0) }
+                    )
+                )
+                .keyboardShortcut(.tab, modifiers: [])
             }
         }
 
@@ -60,8 +76,10 @@ private struct SettingsView: View {
 }
 
 private struct WindowBootstrapper: NSViewRepresentable {
+    let onTab: () -> Void
+
     func makeCoordinator() -> Coordinator {
-        Coordinator()
+        Coordinator(onTab: onTab)
     }
 
     func makeNSView(context: Context) -> NSView {
@@ -69,17 +87,29 @@ private struct WindowBootstrapper: NSViewRepresentable {
         DispatchQueue.main.async {
             context.coordinator.configureWindowIfNeeded(from: view)
         }
+        context.coordinator.startMonitoring()
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.onTab = onTab
         DispatchQueue.main.async {
             context.coordinator.configureWindowIfNeeded(from: nsView)
         }
     }
 
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.stopMonitoring()
+    }
+
     final class Coordinator {
         private var hasConfiguredWindow = false
+        var onTab: () -> Void
+        private var monitor: Any?
+
+        init(onTab: @escaping () -> Void) {
+            self.onTab = onTab
+        }
 
         @MainActor
         func configureWindowIfNeeded(from view: NSView) {
@@ -89,6 +119,26 @@ private struct WindowBootstrapper: NSViewRepresentable {
             let visibleFrame = window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? window.frame
             window.setFrame(visibleFrame, display: true)
             window.minSize = NSSize(width: 1400, height: 820)
+        }
+
+        func startMonitoring() {
+            guard monitor == nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self else { return event }
+                let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+                if event.keyCode == 48 && flags.isEmpty {
+                    self.onTab()
+                    return nil
+                }
+                return event
+            }
+        }
+
+        func stopMonitoring() {
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+                self.monitor = nil
+            }
         }
     }
 }

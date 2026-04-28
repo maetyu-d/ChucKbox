@@ -1,3 +1,5 @@
+import AppKit
+import AVFoundation
 import Foundation
 import SwiftUI
 
@@ -34,6 +36,7 @@ final class AppViewModel: ObservableObject {
     @Published var selectedTrackID: UUID?
     @Published var selectedClipID: UUID?
     @Published var selectedClipIDs: Set<UUID> = []
+    @Published var selectedBusID: UUID?
     @Published var compiledCode: String = ""
     @Published var logMessages: [String] = ["ChuckDAW ready."]
     @Published var chuckPath: String
@@ -44,6 +47,7 @@ final class AppViewModel: ObservableObject {
     @Published var followPlayhead = true
     @Published var timelineZoom: Double = 1.0
     @Published var snapMode: TimelineSnapMode = .bar
+    @Published var isMixerVisible = false
 
     private let processManager = ChuckProcessManager()
     private var transportStartDate: Date?
@@ -70,6 +74,10 @@ final class AppViewModel: ObservableObject {
         project.tracks.firstIndex(where: { $0.id == selectedTrackID })
     }
 
+    var selectedBusIndex: Int? {
+        project.buses.firstIndex(where: { $0.id == selectedBusID })
+    }
+
     var selectedClipIndex: Int? {
         guard let trackIndex = selectedTrackIndex else { return nil }
         return project.tracks[trackIndex].clips.firstIndex(where: { $0.id == selectedClipID })
@@ -91,6 +99,16 @@ final class AppViewModel: ObservableObject {
             set: { newValue in
                 self.project.master[keyPath: keyPath] = newValue
                 self.projectDidChange()
+            }
+        )
+    }
+
+    func masterGainLiveBinding() -> Binding<Double> {
+        Binding(
+            get: { self.project.master.gain },
+            set: { newValue in
+                self.project.master.gain = newValue
+                self.mixerStateDidChange()
             }
         )
     }
@@ -120,6 +138,188 @@ final class AppViewModel: ObservableObject {
         )
     }
 
+    func selectedBusBinding<Value>(_ keyPath: WritableKeyPath<Bus, Value>, fallback: Value) -> Binding<Value> {
+        Binding(
+            get: {
+                guard let busIndex = self.selectedBusIndex else { return fallback }
+                return self.project.buses[busIndex][keyPath: keyPath]
+            },
+            set: { newValue in
+                guard let busIndex = self.selectedBusIndex else { return }
+                self.project.buses[busIndex][keyPath: keyPath] = newValue
+                self.projectDidChange()
+            }
+        )
+    }
+
+    func trackBinding<Value>(_ trackID: UUID, _ keyPath: WritableKeyPath<Track, Value>, fallback: Value) -> Binding<Value> {
+        Binding(
+            get: {
+                guard let trackIndex = self.project.tracks.firstIndex(where: { $0.id == trackID }) else { return fallback }
+                return self.project.tracks[trackIndex][keyPath: keyPath]
+            },
+            set: { newValue in
+                guard let trackIndex = self.project.tracks.firstIndex(where: { $0.id == trackID }) else { return }
+                self.project.tracks[trackIndex][keyPath: keyPath] = newValue
+                self.projectDidChange()
+            }
+        )
+    }
+
+    func trackGainLiveBinding(_ trackID: UUID) -> Binding<Double> {
+        Binding(
+            get: {
+                guard let trackIndex = self.project.tracks.firstIndex(where: { $0.id == trackID }) else { return 1.0 }
+                return self.project.tracks[trackIndex].gain
+            },
+            set: { newValue in
+                guard let trackIndex = self.project.tracks.firstIndex(where: { $0.id == trackID }) else { return }
+                self.project.tracks[trackIndex].gain = newValue
+                self.mixerStateDidChange()
+            }
+        )
+    }
+
+    func trackPanLiveBinding(_ trackID: UUID) -> Binding<Double> {
+        Binding(
+            get: {
+                guard let trackIndex = self.project.tracks.firstIndex(where: { $0.id == trackID }) else { return 0.0 }
+                return self.project.tracks[trackIndex].pan
+            },
+            set: { newValue in
+                guard let trackIndex = self.project.tracks.firstIndex(where: { $0.id == trackID }) else { return }
+                self.project.tracks[trackIndex].pan = newValue
+                self.mixerStateDidChange()
+            }
+        )
+    }
+
+    func trackOutputBusBinding(_ trackID: UUID) -> Binding<UUID?> {
+        Binding(
+            get: {
+                guard let trackIndex = self.project.tracks.firstIndex(where: { $0.id == trackID }) else { return nil }
+                return self.project.tracks[trackIndex].outputBusID
+            },
+            set: { newValue in
+                guard let trackIndex = self.project.tracks.firstIndex(where: { $0.id == trackID }) else { return }
+                self.project.tracks[trackIndex].outputBusID = newValue
+                self.projectDidChange()
+            }
+        )
+    }
+
+    func busGainLiveBinding(_ busID: UUID) -> Binding<Double> {
+        Binding(
+            get: {
+                guard let busIndex = self.project.buses.firstIndex(where: { $0.id == busID }) else { return 1.0 }
+                return self.project.buses[busIndex].gain
+            },
+            set: { newValue in
+                guard let busIndex = self.project.buses.firstIndex(where: { $0.id == busID }) else { return }
+                self.project.buses[busIndex].gain = newValue
+                self.mixerStateDidChange()
+            }
+        )
+    }
+
+    func busPanLiveBinding(_ busID: UUID) -> Binding<Double> {
+        Binding(
+            get: {
+                guard let busIndex = self.project.buses.firstIndex(where: { $0.id == busID }) else { return 0.0 }
+                return self.project.buses[busIndex].pan
+            },
+            set: { newValue in
+                guard let busIndex = self.project.buses.firstIndex(where: { $0.id == busID }) else { return }
+                self.project.buses[busIndex].pan = newValue
+                self.mixerStateDidChange()
+            }
+        )
+    }
+
+    func trackSendLevelBinding(_ trackID: UUID, busID: UUID) -> Binding<Double> {
+        Binding(
+            get: {
+                guard let trackIndex = self.project.tracks.firstIndex(where: { $0.id == trackID }) else { return 0.0 }
+                return self.project.tracks[trackIndex].sends.first(where: { $0.busID == busID })?.level ?? 0.0
+            },
+            set: { newValue in
+                guard let trackIndex = self.project.tracks.firstIndex(where: { $0.id == trackID }) else { return }
+                if let sendIndex = self.project.tracks[trackIndex].sends.firstIndex(where: { $0.busID == busID }) {
+                    self.project.tracks[trackIndex].sends[sendIndex].level = newValue
+                } else {
+                    self.project.tracks[trackIndex].sends.append(BusSend(busID: busID, level: newValue))
+                }
+                self.mixerStateDidChange()
+            }
+        )
+    }
+
+    func loadDeviceSlotForSelectedTrack() {
+        guard let trackIndex = selectedTrackIndex,
+              let url = chooseDeviceFile() else { return }
+        let slot = DeviceSlot(name: url.deletingPathExtension().lastPathComponent, filePath: url.path)
+        project.tracks[trackIndex].deviceSlots.append(slot)
+        projectDidChange()
+    }
+
+    func loadDeviceSlotForSelectedBus() {
+        guard let busIndex = selectedBusIndex,
+              let url = chooseDeviceFile() else { return }
+        let slot = DeviceSlot(name: url.deletingPathExtension().lastPathComponent, filePath: url.path)
+        project.buses[busIndex].deviceSlots.append(slot)
+        projectDidChange()
+    }
+
+    func toggleTrackDeviceSlot(_ slotID: UUID) {
+        guard let trackIndex = selectedTrackIndex,
+              let slotIndex = project.tracks[trackIndex].deviceSlots.firstIndex(where: { $0.id == slotID }) else { return }
+        project.tracks[trackIndex].deviceSlots[slotIndex].isEnabled.toggle()
+        projectDidChange()
+    }
+
+    func toggleBusDeviceSlot(_ slotID: UUID) {
+        guard let busIndex = selectedBusIndex,
+              let slotIndex = project.buses[busIndex].deviceSlots.firstIndex(where: { $0.id == slotID }) else { return }
+        project.buses[busIndex].deviceSlots[slotIndex].isEnabled.toggle()
+        projectDidChange()
+    }
+
+    func removeTrackDeviceSlot(_ slotID: UUID) {
+        guard let trackIndex = selectedTrackIndex else { return }
+        project.tracks[trackIndex].deviceSlots.removeAll { $0.id == slotID }
+        projectDidChange()
+    }
+
+    func removeBusDeviceSlot(_ slotID: UUID) {
+        guard let busIndex = selectedBusIndex else { return }
+        project.buses[busIndex].deviceSlots.removeAll { $0.id == slotID }
+        projectDidChange()
+    }
+
+    func moveTrackDeviceSlot(_ slotID: UUID, by offset: Int) {
+        guard let trackIndex = selectedTrackIndex,
+              let slotIndex = project.tracks[trackIndex].deviceSlots.firstIndex(where: { $0.id == slotID }) else { return }
+        let targetIndex = min(max(0, slotIndex + offset), project.tracks[trackIndex].deviceSlots.count - 1)
+        guard targetIndex != slotIndex else { return }
+        let slot = project.tracks[trackIndex].deviceSlots.remove(at: slotIndex)
+        project.tracks[trackIndex].deviceSlots.insert(slot, at: targetIndex)
+        projectDidChange()
+    }
+
+    func moveBusDeviceSlot(_ slotID: UUID, by offset: Int) {
+        guard let busIndex = selectedBusIndex,
+              let slotIndex = project.buses[busIndex].deviceSlots.firstIndex(where: { $0.id == slotID }) else { return }
+        let targetIndex = min(max(0, slotIndex + offset), project.buses[busIndex].deviceSlots.count - 1)
+        guard targetIndex != slotIndex else { return }
+        let slot = project.buses[busIndex].deviceSlots.remove(at: slotIndex)
+        project.buses[busIndex].deviceSlots.insert(slot, at: targetIndex)
+        projectDidChange()
+    }
+
+    func revealDeviceFile(_ filePath: String) {
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: filePath)])
+    }
+
     func selectedClipBinding<Value>(_ keyPath: WritableKeyPath<ClipRegion, Value>, fallback: Value) -> Binding<Value> {
         Binding(
             get: {
@@ -140,6 +340,7 @@ final class AppViewModel: ObservableObject {
         selectedTrackID = track.id
         selectedClipID = nil
         selectedClipIDs = []
+        selectedBusID = nil
         projectDidChange()
     }
 
@@ -150,6 +351,7 @@ final class AppViewModel: ObservableObject {
         self.selectedTrackID = project.tracks.first?.id
         selectedClipID = project.tracks.first?.clips.first?.id
         selectedClipIDs = project.tracks.first?.clips.first.map { [$0.id] } ?? []
+        selectedBusID = nil
         projectDidChange()
     }
 
@@ -246,6 +448,7 @@ final class AppViewModel: ObservableObject {
 
     func selectTrack(_ trackID: UUID) {
         selectedTrackID = trackID
+        selectedBusID = nil
         if let track = project.tracks.first(where: { $0.id == trackID }) {
             selectedClipID = track.clips.first?.id
             selectedClipIDs = track.clips.first.map { [$0.id] } ?? []
@@ -257,8 +460,16 @@ final class AppViewModel: ObservableObject {
 
     func selectClip(trackID: UUID, clipID: UUID) {
         selectedTrackID = trackID
+        selectedBusID = nil
         selectedClipID = clipID
         selectedClipIDs = [clipID]
+    }
+
+    func selectBus(_ busID: UUID) {
+        selectedBusID = busID
+        selectedTrackID = nil
+        selectedClipID = nil
+        selectedClipIDs = []
     }
 
     func selectClips(_ clipIDs: Set<UUID>) {
@@ -314,11 +525,25 @@ final class AppViewModel: ObservableObject {
         projectDidChange()
     }
 
+    func toggleTrackRenderedAudio(_ trackID: UUID) {
+        guard let trackIndex = project.tracks.firstIndex(where: { $0.id == trackID }),
+              project.tracks[trackIndex].renderedAudio != nil else { return }
+        project.tracks[trackIndex].useRenderedAudio.toggle()
+        projectDidChange()
+    }
+
+    func renderTrackAudio(_ trackID: UUID) {
+        Task { [weak self] in
+            await self?.performRenderTrackAudio(trackID: trackID)
+        }
+    }
+
     func loadPreset() {
         project = selectedPreset.build()
         selectedTrackID = project.tracks.first?.id
         selectedClipID = project.tracks.first?.clips.first?.id
         selectedClipIDs = project.tracks.first?.clips.first.map { [$0.id] } ?? []
+        selectedBusID = nil
         transportBarPosition = Double(project.master.cycleStartBar)
         projectDidChange()
         pushLog("Loaded preset \(selectedPreset.rawValue).")
@@ -329,6 +554,7 @@ final class AppViewModel: ObservableObject {
         selectedTrackID = project.tracks.first?.id
         selectedClipID = project.tracks.first?.clips.first?.id
         selectedClipIDs = project.tracks.first?.clips.first.map { [$0.id] } ?? []
+        selectedBusID = nil
         transportBarPosition = Double(project.master.cycleStartBar)
         projectDidChange()
         pushLog("Project reset.")
@@ -365,6 +591,14 @@ final class AppViewModel: ObservableObject {
         Task { [weak self] in
             await self?.performPanicKillAllAudio()
         }
+    }
+
+    func toggleMixerVisibility() {
+        isMixerVisible.toggle()
+    }
+
+    func setMixerVisibility(_ visible: Bool) {
+        isMixerVisible = visible
     }
 
     func autoDetectBinary() {
@@ -437,11 +671,21 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    private func mixerStateDidChange() {
+        project = TimelineCompiler.normalize(project)
+        compile()
+        if isPlaying {
+            Task { [weak self] in
+                await self?.performPushMixerState()
+            }
+        }
+    }
+
     private func startTransportClock() {
         stopTransportClock(resetPosition: false)
         let secondsPerBar = (60.0 / project.master.bpm) * 4.0
         transportStartDate = Date().addingTimeInterval(-((transportBarPosition - Double(project.master.cycleStartBar)) * secondsPerBar))
-        transportTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+        transportTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.updateTransportPosition()
             }
@@ -615,6 +859,17 @@ final class AppViewModel: ObservableObject {
         return formatter
     }()
 
+    private func chooseDeviceFile() -> URL? {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.plainText]
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.title = "Load ChucK Device"
+        panel.prompt = "Load"
+        return panel.runModal() == .OK ? panel.url : nil
+    }
+
     private static func describeBinary(at path: String) -> String {
         FileManager.default.fileExists(atPath: path) ? "Binary found" : "Binary not found"
     }
@@ -673,6 +928,23 @@ final class AppViewModel: ObservableObject {
             isPlaying = true
             startTransportClock()
             pushLog("Transport started in persistent engine mode.")
+        } catch {
+            pushLog(error.localizedDescription)
+        }
+    }
+
+    private func performPushMixerState() async {
+        let code = TimelineCompiler.buildMixerStateUpdateProgram(project: project)
+        let chuckPath = self.chuckPath
+        let processManager = self.processManager
+        do {
+            try await runBlockingProcessWork {
+                try processManager.addShred(code: code, chuckPath: chuckPath, name: "mixer-state-update") { [weak self] message in
+                    Task { @MainActor in
+                        self?.pushLog(message)
+                    }
+                }
+            }
         } catch {
             pushLog(error.localizedDescription)
         }
@@ -757,6 +1029,108 @@ final class AppViewModel: ObservableObject {
 
     private var totalTimelineSteps: Int {
         project.master.loopBars * 16
+    }
+
+    private func renderOutputURL(for track: Track) throws -> URL {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let folder = appSupport
+            .appendingPathComponent("ChuckDAW", isDirectory: true)
+            .appendingPathComponent("Renders", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let safeName = track.name.replacingOccurrences(of: "[^A-Za-z0-9_-]+", with: "-", options: .regularExpression)
+        return folder.appendingPathComponent("\(safeName)-\(track.id.uuidString).wav")
+    }
+
+    private func buildWaveform(for fileURL: URL, sampleCount: Int = 240) -> [Float] {
+        guard let audioFile = try? AVAudioFile(forReading: fileURL) else { return [] }
+        let frameCount = AVAudioFrameCount(audioFile.length)
+        guard frameCount > 0,
+              let buffer = AVAudioPCMBuffer(pcmFormat: audioFile.processingFormat, frameCapacity: frameCount),
+              (try? audioFile.read(into: buffer)) != nil,
+              let channelData = buffer.floatChannelData else { return [] }
+
+        let channelCount = Int(buffer.format.channelCount)
+        let totalFrames = Int(buffer.frameLength)
+        guard totalFrames > 0 else { return [] }
+
+        var mono: [Float] = Array(repeating: 0, count: totalFrames)
+        for channel in 0..<channelCount {
+            let samples = channelData[channel]
+            for index in 0..<totalFrames {
+                mono[index] += abs(samples[index])
+            }
+        }
+        let normalizer = Float(max(1, channelCount))
+        mono = mono.map { $0 / normalizer }
+
+        let bucketSize = max(1, totalFrames / sampleCount)
+        return stride(from: 0, to: totalFrames, by: bucketSize).map { start in
+            let end = min(totalFrames, start + bucketSize)
+            let slice = mono[start..<end]
+            let peak = slice.max() ?? 0
+            return min(1, peak * 1.6)
+        }
+    }
+
+    private func performRenderTrackAudio(trackID: UUID) async {
+        guard let track = project.tracks.first(where: { $0.id == trackID }) else { return }
+        let outputURL: URL
+        do {
+            outputURL = try renderOutputURL(for: track)
+        } catch {
+            pushLog("Could not prepare render destination: \(error.localizedDescription)")
+            return
+        }
+
+        guard let code = TimelineCompiler.buildTrackRenderProgram(
+            project: project,
+            trackID: trackID,
+            outputPath: outputURL.path,
+            projectRoot: projectRootPath
+        ) else {
+            pushLog("Could not build a render for \(track.name).")
+            return
+        }
+
+        let chuckPath = self.chuckPath
+        let processManager = self.processManager
+        do {
+            try await runBlockingProcessWork {
+                _ = try processManager.renderTrackToFile(
+                    code: code,
+                    chuckPath: chuckPath,
+                    outputURL: outputURL
+                ) { [weak self] message in
+                    Task { @MainActor in
+                        self?.pushLog(message)
+                    }
+                }
+            }
+
+            let waveform = buildWaveform(for: outputURL)
+            let durationSeconds = audioDuration(for: outputURL)
+            if let trackIndex = project.tracks.firstIndex(where: { $0.id == trackID }) {
+                project.tracks[trackIndex].renderedAudio = RenderedTrackAudio(
+                    filePath: outputURL.path,
+                    startStep: (project.master.cycleStartBar - 1) * 16,
+                    lengthSteps: max(1, (project.master.cycleEndBar - project.master.cycleStartBar + 1) * 16),
+                    durationSeconds: durationSeconds,
+                    waveform: waveform
+                )
+                project.tracks[trackIndex].useRenderedAudio = true
+                projectDidChange()
+                pushLog("Rendered \(track.name) to audio.")
+            }
+        } catch {
+            pushLog(error.localizedDescription)
+        }
+    }
+
+    private func audioDuration(for fileURL: URL) -> Double {
+        guard let file = try? AVAudioFile(forReading: fileURL) else { return 0 }
+        let sampleRate = file.processingFormat.sampleRate
+        guard sampleRate > 0 else { return 0 }
+        return Double(file.length) / sampleRate
     }
 
     private func runBlockingProcessWork(_ work: @Sendable @escaping () throws -> Void) async throws {

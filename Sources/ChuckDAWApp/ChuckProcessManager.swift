@@ -24,6 +24,10 @@ final class ChuckProcessManager: @unchecked Sendable {
     private var loopStderrPipe: Pipe?
     private let controlPort: Int = Int.random(in: 8900...9800)
 
+    struct RenderResult {
+        let outputURL: URL
+    }
+
     func play(code: String, chuckPath: String, onOutput: @escaping @Sendable (String) -> Void) throws {
         try stop(onOutput: onOutput)
 
@@ -87,6 +91,50 @@ final class ChuckProcessManager: @unchecked Sendable {
             onOutput("Playback stopped.")
         }
         self.process = nil
+    }
+
+    func renderTrackToFile(code: String, chuckPath: String, outputURL: URL, onOutput: @escaping @Sendable (String) -> Void) throws -> RenderResult {
+        let binaryURL = URL(fileURLWithPath: chuckPath)
+        guard FileManager.default.fileExists(atPath: binaryURL.path) else {
+            throw ChuckProcessError.binaryNotFound
+        }
+
+        let tempDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("ChuckDAW-Renders", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        let scriptURL = tempDirectory.appendingPathComponent("render-\(UUID().uuidString).ck")
+        try code.write(to: scriptURL, atomically: true, encoding: .utf8)
+
+        if FileManager.default.fileExists(atPath: outputURL.path) {
+            try FileManager.default.removeItem(at: outputURL)
+        }
+
+        let process = Process()
+        process.executableURL = binaryURL
+        process.arguments = ["--silent", scriptURL.path]
+        process.currentDirectoryURL = tempDirectory
+
+        let outputPipe = Pipe()
+        process.standardOutput = outputPipe
+        process.standardError = outputPipe
+        try process.run()
+        process.waitUntilExit()
+
+        let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
+        let output = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !output.isEmpty {
+            onOutput(output)
+        }
+
+        guard process.terminationStatus == 0 else {
+            throw ChuckProcessError.commandFailed(output.isEmpty ? "ChucK could not render the track." : output)
+        }
+        guard FileManager.default.fileExists(atPath: outputURL.path) else {
+            throw ChuckProcessError.commandFailed("The track render finished, but no audio file was produced.")
+        }
+
+        onOutput("Rendered audio file \(outputURL.lastPathComponent).")
+        return RenderResult(outputURL: outputURL)
     }
 
     func ensureLoopRunning(chuckPath: String, onOutput: @escaping @Sendable (String) -> Void) throws {
