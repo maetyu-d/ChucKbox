@@ -12,6 +12,14 @@ struct ChuckDAWApp: App {
                 .background(WindowBootstrapper())
         }
         .defaultSize(width: 1720, height: 980)
+        .commands {
+            CommandMenu("Transport") {
+                Button("Panic Stop Audio") {
+                    model.panicKillAllAudio()
+                }
+                .keyboardShortcut("k", modifiers: [.command])
+            }
+        }
 
         Settings {
             SettingsView()

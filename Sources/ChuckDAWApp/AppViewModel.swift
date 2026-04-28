@@ -357,6 +357,16 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    func panicKillAllAudio() {
+        isPlaying = false
+        stopTransportClock(resetPosition: false)
+        pushLog("Panic stop requested.")
+
+        Task { [weak self] in
+            await self?.performPanicKillAllAudio()
+        }
+    }
+
     func autoDetectBinary() {
         let path = Self.defaultChuckPath()
         chuckPath = path
@@ -689,6 +699,21 @@ final class AppViewModel: ObservableObject {
                     }
                 }
                 processManager.shutdownLoop { [weak self] message in
+                    Task { @MainActor in
+                        self?.pushLog(message)
+                    }
+                }
+            }
+        } catch {
+            pushLog(error.localizedDescription)
+        }
+    }
+
+    private func performPanicKillAllAudio() async {
+        let processManager = self.processManager
+        do {
+            try await runBlockingProcessWork {
+                try processManager.forceKillAllChuckAudio { [weak self] message in
                     Task { @MainActor in
                         self?.pushLog(message)
                     }

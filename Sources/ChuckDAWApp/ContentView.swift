@@ -27,11 +27,12 @@ struct ContentView: View {
             Divider()
             HSplitView {
                 trackListPane
-                    .frame(minWidth: 240, idealWidth: 260, maxWidth: 300)
+                    .frame(minWidth: 220, idealWidth: 280, maxWidth: 520)
                 timelinePane
                     .frame(minWidth: 700)
+                    .layoutPriority(1)
                 editorPane
-                    .frame(minWidth: 380, idealWidth: 430)
+                    .frame(minWidth: 320, idealWidth: 420, maxWidth: 760)
             }
         }
         .frame(minWidth: 1320, minHeight: 780)
@@ -48,12 +49,12 @@ struct ContentView: View {
     }
 
     private var topBar: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 6) {
             compactTransportRow
             compactSessionRow
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 8)
+        .padding(.vertical, 6)
         .background(
             LinearGradient(
                 colors: [
@@ -70,7 +71,7 @@ struct ContentView: View {
     }
 
     private var compactTransportRow: some View {
-        HStack(alignment: .center, spacing: 12) {
+        HStack(alignment: .center, spacing: 10) {
             compactIdentity
             compactTransportButtons
             compactTimingStrip
@@ -79,7 +80,7 @@ struct ContentView: View {
             Spacer(minLength: 10)
             compactMonitorStrip
         }
-        .frame(height: 40)
+        .frame(height: 36)
     }
 
     private var compactSessionRow: some View {
@@ -105,6 +106,12 @@ struct ContentView: View {
                 model.resetProject()
             }
             .buttonStyle(.bordered)
+
+            SettingsLink {
+                Text("Settings…")
+            }
+            .buttonStyle(.bordered)
+
             Spacer(minLength: 0)
         }
         .controlSize(.small)
@@ -179,87 +186,99 @@ struct ContentView: View {
                 .font(.system(size: 11, weight: .semibold))
             }
 
-            ScrollViewReader { proxy in
-                ScrollView([.horizontal, .vertical]) {
-                    LazyVStack(alignment: .leading, spacing: 10, pinnedViews: [.sectionHeaders]) {
-                        Section {
+            GeometryReader { geometry in
+                ScrollViewReader { proxy in
+                    ScrollView([.horizontal, .vertical]) {
+                        LazyVStack(alignment: .leading, spacing: 10) {
+                            timelinePinnedHeader
+
                             ForEach(model.project.tracks) { track in
                                 trackLane(track)
                             }
-                        } header: {
-                            timelinePinnedHeader
+                        }
+                        .frame(minWidth: geometry.size.width, minHeight: geometry.size.height, alignment: .topLeading)
+                        .contentShape(Rectangle())
+                        .padding(12)
+                        .overlay(alignment: .topLeading) {
+                            if let marqueeRect {
+                                Rectangle()
+                                    .fill(Color.accentColor.opacity(0.12))
+                                    .overlay(
+                                        Rectangle()
+                                            .stroke(Color.accentColor.opacity(0.8), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+                                    )
+                                    .frame(width: marqueeRect.width, height: marqueeRect.height)
+                                    .offset(x: marqueeRect.minX, y: marqueeRect.minY)
+                            }
                         }
                     }
-                    .padding(12)
-                    .overlay(alignment: .topLeading) {
-                        if let marqueeRect {
-                            Rectangle()
-                                .fill(Color.accentColor.opacity(0.12))
-                                .overlay(
-                                    Rectangle()
-                                        .stroke(Color.accentColor.opacity(0.8), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
-                                )
-                                .frame(width: marqueeRect.width, height: marqueeRect.height)
-                                .offset(x: marqueeRect.minX, y: marqueeRect.minY)
-                        }
-                    }
-                }
-                .background(
-                    LinearGradient(
-                        colors: [
-                            Color(nsColor: .textBackgroundColor).opacity(0.42),
-                            Color(nsColor: .controlBackgroundColor).opacity(0.58)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
+                    .background(
+                        LinearGradient(
+                            colors: [
+                                Color(nsColor: .textBackgroundColor).opacity(0.42),
+                                Color(nsColor: .controlBackgroundColor).opacity(0.58)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
                     )
-                )
-                .onAppear {
-                    scrollToVisibleBar(using: proxy, animated: false)
-                }
-                .onChange(of: currentBarAnchor) { _, _ in
-                    scrollToVisibleBar(using: proxy, animated: model.isPlaying)
-                }
-                .onChange(of: model.project.master.loopBars) { _, _ in
-                    scrollToVisibleBar(using: proxy, animated: false)
-                }
-                .onChange(of: model.timelineZoom) { _, _ in
-                    scrollToVisibleBar(using: proxy, animated: false)
-                }
-                .simultaneousGesture(
-                    DragGesture(minimumDistance: 10)
-                        .onChanged { value in
-                            if NSEvent.modifierFlags.contains(.command) {
-                                if marqueeStart == nil {
-                                    marqueeStart = value.startLocation
+                    .onAppear {
+                        scrollToVisibleBar(using: proxy, animated: false)
+                    }
+                    .onChange(of: currentBarAnchor) { _, _ in
+                        scrollToVisibleBar(using: proxy, animated: model.isPlaying)
+                    }
+                    .onChange(of: model.project.master.loopBars) { _, _ in
+                        scrollToVisibleBar(using: proxy, animated: false)
+                    }
+                    .onChange(of: model.timelineZoom) { _, _ in
+                        scrollToVisibleBar(using: proxy, animated: false)
+                    }
+                    .simultaneousGesture(
+                        DragGesture(minimumDistance: 10)
+                            .onChanged { value in
+                                if NSEvent.modifierFlags.contains(.command) {
+                                    if marqueeStart == nil {
+                                        marqueeStart = value.startLocation
+                                    }
+                                    marqueeCurrent = value.location
                                 }
-                                marqueeCurrent = value.location
                             }
-                        }
-                        .onEnded { _ in
-                            if marqueeStart != nil {
-                                applyMarqueeSelection()
+                            .onEnded { _ in
+                                if marqueeStart != nil {
+                                    applyMarqueeSelection()
+                                }
+                                marqueeStart = nil
+                                marqueeCurrent = nil
                             }
-                            marqueeStart = nil
-                            marqueeCurrent = nil
-                        }
-                )
+                    )
+                }
             }
         }
     }
 
     private var timelinePinnedHeader: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            headerInfoStrip
-                .padding(.bottom, 8)
-            scrubStrip
-                .padding(.bottom, 8)
-            overviewStrip
-                .padding(.bottom, 8)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Text("Timeline")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: laneLabelWidth, alignment: .leading)
+
+                HStack(spacing: 6) {
+                    headerPill(logicBarDisplay, tint: Color.green.opacity(0.16))
+                    headerPill("Cycle \(model.project.master.cycleStartBar)-\(model.project.master.cycleEndBar)", tint: Color.secondary.opacity(0.10))
+                    if let primaryFollowTrack, usesIndependentTrackPlayheads {
+                        headerPill("\(primaryFollowTrack.name) \(localPlayheadDisplay(for: primaryFollowTrack))", tint: Color.orange.opacity(0.14))
+                    }
+                }
+            }
+
             barRuler
         }
-        .padding(.top, 10)
-        .padding(.bottom, 8)
+        .padding(.vertical, 4)
+        .frame(height: 42, alignment: .top)
+        .clipped()
         .overlay(alignment: .bottom) {
             Divider()
         }
@@ -476,26 +495,8 @@ struct ContentView: View {
                 .overlay(
                     RoundedRectangle(cornerRadius: 10)
                         .stroke(Color.white.opacity(0.05), lineWidth: 1)
-                )
+            )
         )
-    }
-
-    private var headerInfoStrip: some View {
-        HStack(spacing: 10) {
-            Text("Timeline")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: laneLabelWidth, alignment: .leading)
-
-            HStack(spacing: 8) {
-                headerPill("Master \(logicBarDisplay)", tint: Color.green.opacity(0.18))
-                if let primaryFollowTrack, usesIndependentTrackPlayheads {
-                    headerPill("\(primaryFollowTrack.name) \(localPlayheadDisplay(for: primaryFollowTrack))", tint: Color.orange.opacity(0.18))
-                }
-                headerPill("Snap \(model.snapMode.rawValue)", tint: Color.secondary.opacity(0.12))
-                headerPill("Cycle \(model.project.master.cycleStartBar)-\(model.project.master.cycleEndBar)", tint: Color.secondary.opacity(0.12))
-            }
-        }
     }
 
     private var barRuler: some View {
@@ -521,8 +522,8 @@ struct ContentView: View {
                 if usesIndependentTrackPlayheads, let primaryFollowTrack {
                     Rectangle()
                         .fill(Color.orange.opacity(0.95))
-                        .frame(width: 2, height: 24)
-                        .offset(x: lanePlayheadX(for: primaryFollowTrack), y: -2)
+                        .frame(width: 2, height: 18)
+                        .offset(x: lanePlayheadX(for: primaryFollowTrack), y: 2)
                         .shadow(color: Color.orange.opacity(0.42), radius: 3)
 
                     Text("T1")
@@ -531,13 +532,13 @@ struct ContentView: View {
                         .padding(.horizontal, 4)
                         .padding(.vertical, 2)
                         .background(Color.black.opacity(0.25), in: Capsule())
-                        .offset(x: min(max(0, lanePlayheadX(for: primaryFollowTrack) + 4), max(0, timelineWidth - 24)), y: -16)
+                        .offset(x: min(max(0, lanePlayheadX(for: primaryFollowTrack) + 4), max(0, timelineWidth - 24)), y: -10)
                 }
 
-                RoundedRectangle(cornerRadius: 5)
+                RoundedRectangle(cornerRadius: 4)
                     .fill(Color.accentColor.opacity(0.10))
-                    .frame(width: cycleOverlayWidth, height: 22)
-                    .offset(x: cycleOverlayX, y: -1)
+                    .frame(width: cycleOverlayWidth, height: 18)
+                    .offset(x: cycleOverlayX, y: 2)
                     .gesture(
                         DragGesture()
                             .onChanged { value in
@@ -552,8 +553,8 @@ struct ContentView: View {
                     )
 
                 cycleHandle
-                    .frame(height: 22)
-                    .offset(x: cycleOverlayX, y: -1)
+                    .frame(height: 18)
+                    .offset(x: cycleOverlayX, y: 2)
                     .gesture(
                         DragGesture()
                             .onChanged { value in
@@ -563,8 +564,8 @@ struct ContentView: View {
                     )
 
                 cycleHandle
-                    .frame(height: 22)
-                    .offset(x: cycleOverlayX + cycleOverlayWidth - cycleHandleWidth, y: -1)
+                    .frame(height: 18)
+                    .offset(x: cycleOverlayX + cycleOverlayWidth - cycleHandleWidth, y: 2)
                     .gesture(
                         DragGesture()
                             .onChanged { value in
@@ -581,163 +582,9 @@ struct ContentView: View {
                     }
             )
         }
+        .frame(height: 22, alignment: .top)
     }
 
-    private var overviewStrip: some View {
-        HStack(spacing: 6) {
-            Text("Overview")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: laneLabelWidth, alignment: .leading)
-
-            GeometryReader { geometry in
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 7)
-                        .fill(Color.secondary.opacity(0.08))
-
-                    overviewBarGrid(width: geometry.size.width)
-
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Color.accentColor.opacity(0.12))
-                        .frame(
-                            width: overviewCycleWidth(width: geometry.size.width),
-                            height: 30
-                        )
-                        .offset(x: overviewCycleX(width: geometry.size.width), y: 3)
-                        .gesture(
-                            DragGesture()
-                                .onChanged { value in
-                                    let span = model.project.master.cycleEndBar - model.project.master.cycleStartBar
-                                    let proposedStart = overviewBarIndex(
-                                        for: overviewCycleX(width: geometry.size.width) + value.translation.width,
-                                        width: geometry.size.width
-                                    )
-                                    let clampedStart = min(
-                                        max(1, proposedStart),
-                                        max(1, model.project.master.loopBars - span)
-                                    )
-                                    model.setCycleRange(start: clampedStart, end: clampedStart + span)
-                                }
-                        )
-
-                    cycleHandle
-                        .offset(x: overviewCycleX(width: geometry.size.width), y: 3)
-                        .gesture(
-                            DragGesture()
-                                .onChanged { value in
-                                    let bar = overviewBarIndex(
-                                        for: overviewCycleX(width: geometry.size.width) + value.translation.width,
-                                        width: geometry.size.width
-                                    )
-                                    model.setCycleRange(start: min(bar, model.project.master.cycleEndBar))
-                                }
-                        )
-
-                    cycleHandle
-                        .offset(
-                            x: overviewCycleX(width: geometry.size.width) + overviewCycleWidth(width: geometry.size.width) - cycleHandleWidth,
-                            y: 3
-                        )
-                        .gesture(
-                            DragGesture()
-                                .onChanged { value in
-                                    let bar = overviewBarIndex(
-                                        for: overviewCycleX(width: geometry.size.width) + overviewCycleWidth(width: geometry.size.width) + value.translation.width,
-                                        width: geometry.size.width
-                                    )
-                                    model.setCycleRange(end: max(bar, model.project.master.cycleStartBar))
-                                }
-                        )
-
-                    ForEach(model.project.tracks) { track in
-                        ForEach(track.clips) { clip in
-                            let overviewWidth = max(4, geometry.size.width * CGFloat(clip.lengthSteps) / CGFloat(max(1, model.project.master.loopBars * 16)))
-                            let overviewX = geometry.size.width * CGFloat(clip.startStep) / CGFloat(max(1, model.project.master.loopBars * 16))
-                            let overviewFill = clipFill(track: track, selected: model.selectedClipIDs.contains(clip.id), audible: trackIsAudible(track)).opacity(0.9)
-                            RoundedRectangle(cornerRadius: 4)
-                                .fill(overviewFill)
-                                .frame(
-                                    width: overviewWidth,
-                                    height: 8
-                                )
-                                .offset(
-                                    x: overviewX,
-                                    y: CGFloat(10 + (trackRowIndex(track) % 3) * 10)
-                                )
-                        }
-                    }
-
-                Rectangle()
-                    .fill(Color.white.opacity(0.95))
-                    .frame(width: 2)
-                    .offset(x: overviewPlayheadX(width: geometry.size.width))
-                    .shadow(color: .accentColor.opacity(0.35), radius: 2)
-
-                if usesIndependentTrackPlayheads, let primaryFollowTrack {
-                    Rectangle()
-                        .fill(Color.orange.opacity(0.95))
-                        .frame(width: 2)
-                        .offset(x: overviewTrackPlayheadX(track: primaryFollowTrack, width: geometry.size.width))
-                        .shadow(color: Color.orange.opacity(0.4), radius: 2)
-                }
-            }
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onEnded { value in
-                            let clampedX = min(max(0, value.location.x), geometry.size.width)
-                            let ratio = geometry.size.width > 0 ? clampedX / geometry.size.width : 0
-                            let position = 1.0 + Double(ratio) * Double(max(1, model.project.master.loopBars))
-                            model.setTransportBarPosition(snappedTransportPosition(position))
-                        }
-                )
-            }
-            .frame(height: 36)
-        }
-    }
-
-    private var scrubStrip: some View {
-        HStack(spacing: 6) {
-            Text("Scrub")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: laneLabelWidth, alignment: .leading)
-
-            GeometryReader { geometry in
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 7)
-                        .fill(Color.black.opacity(0.18))
-                    RoundedRectangle(cornerRadius: 7)
-                        .fill(Color.accentColor.opacity(0.16))
-                        .frame(width: max(2, scrubPlayheadX(width: geometry.size.width)))
-                    Rectangle()
-                        .fill(Color.white.opacity(0.92))
-                        .frame(width: 2)
-                        .offset(x: scrubPlayheadX(width: geometry.size.width))
-                        .shadow(color: .accentColor.opacity(0.35), radius: 2)
-
-                    if usesIndependentTrackPlayheads, let primaryFollowTrack {
-                        Rectangle()
-                            .fill(Color.orange.opacity(0.92))
-                            .frame(width: 2)
-                            .offset(x: scrubTrackPlayheadX(track: primaryFollowTrack, width: geometry.size.width))
-                            .shadow(color: Color.orange.opacity(0.35), radius: 2)
-                    }
-                }
-                .contentShape(Rectangle())
-                .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { value in
-                            let clampedX = min(max(0, value.location.x), geometry.size.width)
-                            let ratio = geometry.size.width > 0 ? clampedX / geometry.size.width : 0
-                            let position = 1.0 + Double(ratio) * Double(max(1, model.project.master.loopBars))
-                            model.setTransportBarPosition(snappedTransportPosition(position))
-                        }
-                )
-            }
-            .frame(height: 18)
-        }
-    }
 
     private func trackLane(_ track: Track) -> some View {
         HStack(alignment: .top, spacing: 6) {
@@ -1066,15 +913,15 @@ struct ContentView: View {
     }
 
     private var compactIdentity: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             Text(model.project.name.isEmpty ? "ChuckDAW" : model.project.name)
-                .font(.system(size: 14, weight: .bold, design: .rounded))
+                .font(.system(size: 13, weight: .bold, design: .rounded))
                 .lineLimit(1)
             Text("Arrange")
                 .font(.system(size: 9, weight: .semibold, design: .monospaced))
                 .foregroundStyle(.secondary)
         }
-        .frame(width: 148, alignment: .leading)
+        .frame(width: 134, alignment: .leading)
     }
 
     private var compactTransportButtons: some View {
@@ -1083,45 +930,42 @@ struct ContentView: View {
                 model.startPlayback()
             }
             .buttonStyle(.borderedProminent)
-            .frame(width: 62)
+            .frame(width: 58)
 
             Button("Stop") {
                 model.stopPlayback()
             }
             .buttonStyle(.bordered)
-            .frame(width: 54)
+            .frame(width: 50)
 
             Button("Compile") {
                 model.compile()
             }
             .buttonStyle(.bordered)
-            .frame(width: 66)
+            .frame(width: 62)
         }
         .controlSize(.small)
     }
 
     private var compactTimingStrip: some View {
         HStack(spacing: 8) {
-            compactNumberField("BPM", value: model.masterBinding(\.bpm), width: 46, precision: 0)
-            compactNumberField("Gain", value: model.masterBinding(\.gain), width: 50, precision: 2)
-            compactIntField("Loop", value: model.masterBinding(\.loopBars), width: 42)
-            compactIntField("In", value: cycleStartBinding, width: 38)
-            compactIntField("Out", value: cycleEndBinding, width: 38)
+            compactNumberField("BPM", value: model.masterBinding(\.bpm), width: 44, precision: 0)
+            compactNumberField("Gain", value: model.masterBinding(\.gain), width: 48, precision: 2)
+            compactIntField("Loop", value: model.masterBinding(\.loopBars), width: 40)
+            compactIntField("In", value: cycleStartBinding, width: 36)
+            compactIntField("Out", value: cycleEndBinding, width: 36)
         }
     }
 
     private var compactSnapStrip: some View {
         HStack(spacing: 6) {
-            Text("Snap")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(.secondary)
             Picker("", selection: $model.snapMode) {
                 ForEach(TimelineSnapMode.allCases) { mode in
                     Text(mode.rawValue).tag(mode)
                 }
             }
             .pickerStyle(.segmented)
-            .frame(width: 138)
+            .frame(width: 132)
         }
     }
 
@@ -1142,24 +986,24 @@ struct ContentView: View {
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.secondary)
                 Slider(value: $model.timelineZoom, in: 0.65...1.85)
-                    .frame(width: 68)
+                    .frame(width: 60)
             }
         }
-        .frame(width: 156, alignment: .leading)
+        .frame(width: 144, alignment: .leading)
     }
 
     private var compactMonitorStrip: some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(logicBarDisplay)
-                    .font(.system(size: 17, weight: .bold, design: .monospaced))
+                    .font(.system(size: 16, weight: .bold, design: .monospaced))
                     .foregroundStyle(Color.green.opacity(0.95))
                 Text("Master")
                     .font(.system(size: 9, weight: .semibold, design: .monospaced))
                     .foregroundStyle(Color.green.opacity(0.55))
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 6)
+            .padding(.vertical, 5)
             .background(
                 RoundedRectangle(cornerRadius: 9)
                     .fill(Color.black.opacity(0.84))
@@ -1174,7 +1018,7 @@ struct ContentView: View {
             }
         }
         .padding(.horizontal, 8)
-        .padding(.vertical, 4)
+        .padding(.vertical, 3)
         .background(
             RoundedRectangle(cornerRadius: 10)
                 .fill(Color.black.opacity(0.05))

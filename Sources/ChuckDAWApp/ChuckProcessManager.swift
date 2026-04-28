@@ -229,6 +229,47 @@ final class ChuckProcessManager: @unchecked Sendable {
         self.loopProcess = nil
     }
 
+    func forceKillAllChuckAudio(onOutput: @escaping @Sendable (String) -> Void) throws {
+        stdoutPipe?.fileHandleForReading.readabilityHandler = nil
+        stderrPipe?.fileHandleForReading.readabilityHandler = nil
+        loopStdoutPipe?.fileHandleForReading.readabilityHandler = nil
+        loopStderrPipe?.fileHandleForReading.readabilityHandler = nil
+        stdoutPipe = nil
+        stderrPipe = nil
+        loopStdoutPipe = nil
+        loopStderrPipe = nil
+        process = nil
+        loopProcess = nil
+
+        let pkill = Process()
+        pkill.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
+        pkill.arguments = ["-9", "-x", "chuck"]
+
+        let outputPipe = Pipe()
+        pkill.standardOutput = outputPipe
+        pkill.standardError = outputPipe
+
+        try pkill.run()
+        pkill.waitUntilExit()
+
+        let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
+        let output = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        if !output.isEmpty {
+            onOutput(output)
+        }
+
+        // pkill returns 1 when no processes matched, which is acceptable for panic-stop.
+        if pkill.terminationStatus == 0 {
+            onOutput("Panic stop: all ChucK audio was killed.")
+        } else if pkill.terminationStatus == 1 {
+            onOutput("Panic stop: no running ChucK processes were found.")
+        } else {
+            throw ChuckProcessError.commandFailed(output.isEmpty ? "Panic stop failed." : output)
+        }
+    }
+
     func terminateManagedChuckProcesses(chuckPath: String, onOutput: @escaping @Sendable (String) -> Void) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/ps")
